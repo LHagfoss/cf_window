@@ -15,6 +15,14 @@ pub const K_AX_PARENT_ATTRIBUTE: &str = "AXParent";
 pub const K_AX_RAISE_ACTION: &str = "AXRaise";
 pub const K_AX_WINDOW_ROLE: &str = "AXWindow";
 
+macro_rules! log_debug {
+    ($($arg:tt)*) => {
+        if crate::is_verbose() {
+            println!($($arg)*);
+        }
+    };
+}
+
 #[link(name = "ApplicationServices", kind = "framework")]
 unsafe extern "C" {
     pub fn AXUIElementCreateSystemWide() -> AXUIElementRef;
@@ -95,7 +103,7 @@ pub fn find_window_at(x: f32, y: f32) -> Option<AXElement> {
 
         let err = AXUIElementCopyElementAtPosition(sys_wide.raw(), x, y, &mut raw_element);
         if err != K_AX_ERROR_SUCCESS {
-            println!("[DEBUG] AXUIElementCopyElementAtPosition failed with code: {}", err);
+            log_debug!("[DEBUG] AXUIElementCopyElementAtPosition failed with code: {}", err);
             return None;
         }
         let element = AXElement::new(raw_element);
@@ -125,10 +133,10 @@ pub fn find_window_at(x: f32, y: f32) -> Option<AXElement> {
                 title_name = title_str.to_string();
             }
 
-            println!("[DEBUG] Traversal depth {}: role = {}, title = {:?}", depth, role_name, title_name);
+            log_debug!("[DEBUG] Traversal depth {}: role = {}, title = {:?}", depth, role_name, title_name);
 
             if role_name == target_role.to_string() {
-                println!("[DEBUG] Found AXWindow element!");
+                log_debug!("[DEBUG] Found AXWindow element!");
                 return Some(current);
             }
 
@@ -138,12 +146,12 @@ pub fn find_window_at(x: f32, y: f32) -> Option<AXElement> {
                 current = AXElement::new(parent_ref);
                 depth += 1;
             } else {
-                println!("[DEBUG] Parent lookup failed at depth {} with code: {}", depth, parent_err);
+                log_debug!("[DEBUG] Parent lookup failed at depth {} with code: {}", depth, parent_err);
                 break;
             }
         }
 
-        println!("[DEBUG] Traversal finished, no AXWindow found.");
+        log_debug!("[DEBUG] Traversal finished, no AXWindow found.");
         None
     }
 }
@@ -162,29 +170,29 @@ pub fn focus_window(window: &AXElement) {
             let is_main = core_foundation::boolean::CFBoolean::wrap_under_create_rule(is_main_ref as _);
             is_main_bool = is_main == core_foundation::boolean::CFBoolean::true_value();
         }
-        println!("[DEBUG] Focus window target: is_main = {}", is_main_bool);
+        log_debug!("[DEBUG] Focus window target: is_main = {}", is_main_bool);
 
         let true_val = core_foundation::boolean::CFBoolean::true_value();
         let true_val_ref = true_val.as_concrete_TypeRef();
 
         let mut pid: libc::pid_t = 0;
         let pid_err = AXUIElementGetPid(window.raw(), &mut pid);
-        println!("[DEBUG] AXUIElementGetPid returned: {}, pid = {}", pid_err, pid);
+        log_debug!("[DEBUG] AXUIElementGetPid returned: {}, pid = {}", pid_err, pid);
         
         if pid_err == K_AX_ERROR_SUCCESS {
             let app: cocoa::base::id = msg_send![class!(NSRunningApplication), runningApplicationWithProcessIdentifier: pid];
             if app != cocoa::base::nil {
                 let success: cocoa::base::BOOL = msg_send![app, activateWithOptions: cocoa::appkit::NSApplicationActivateIgnoringOtherApps];
-                println!("[DEBUG] NSRunningApplication activateWithOptions returned: {}", success);
+                log_debug!("[DEBUG] NSRunningApplication activateWithOptions returned: {}", success);
             } else {
-                println!("[DEBUG] NSRunningApplication for pid {} is nil", pid);
+                log_debug!("[DEBUG] NSRunningApplication for pid {} is nil", pid);
             }
         }
 
         let main_err = AXUIElementSetAttributeValue(window.raw(), main_attr.as_concrete_TypeRef(), true_val_ref as *mut _);
-        println!("[DEBUG] AXUIElementSetAttributeValue(AXMain) returned: {}", main_err);
+        log_debug!("[DEBUG] AXUIElementSetAttributeValue(AXMain) returned: {}", main_err);
         
         let raise_err = AXUIElementPerformAction(window.raw(), raise_act.as_concrete_TypeRef());
-        println!("[DEBUG] AXUIElementPerformAction(AXRaise) returned: {}", raise_err);
+        log_debug!("[DEBUG] AXUIElementPerformAction(AXRaise) returned: {}", raise_err);
     }
 }
