@@ -1,6 +1,9 @@
+#![allow(deprecated)]
+
 use std::ffi::c_void;
 use core_foundation::string::{CFStringRef, CFString};
 use core_foundation::base::TCFType;
+use objc::{msg_send, class, sel, sel_impl};
 
 pub type AXUIElementRef = *mut c_void;
 pub type AXError = i32;
@@ -39,7 +42,6 @@ unsafe extern "C" {
     pub fn AXIsProcessTrusted() -> bool;
 
     pub fn AXUIElementGetPid(element: AXUIElementRef, pid: *mut libc::pid_t) -> AXError;
-    pub fn AXUIElementCreateApplication(pid: libc::pid_t) -> AXUIElementRef;
 }
 
 pub struct AXElement(AXUIElementRef);
@@ -149,10 +151,9 @@ pub fn focus_window(window: &AXElement) {
 
         let mut pid: libc::pid_t = 0;
         if AXUIElementGetPid(window.raw(), &mut pid) == K_AX_ERROR_SUCCESS {
-            let app_ref = AXElement::new(AXUIElementCreateApplication(pid));
-            if !app_ref.raw().is_null() {
-                let frontmost_attr = CFString::from_static_string("AXFrontmost");
-                AXUIElementSetAttributeValue(app_ref.raw(), frontmost_attr.as_concrete_TypeRef(), true_val_ref as *mut _);
+            let app: cocoa::base::id = msg_send![class!(NSRunningApplication), runningApplicationWithProcessIdentifier: pid];
+            if app != cocoa::base::nil {
+                let _: cocoa::base::BOOL = msg_send![app, activateWithOptions: cocoa::appkit::NSApplicationActivateIgnoringOtherApps];
             }
         }
 
