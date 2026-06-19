@@ -19,6 +19,11 @@ use cocoa::appkit::{NSApp, NSApplication, NSApplicationActivationPolicy::NSAppli
 use tray_icon::{TrayIconBuilder, Icon};
 use tray_icon::menu::{Menu, MenuItem, CheckMenuItem, PredefinedMenuItem, MenuEvent};
 
+enum FocusEvent {
+    MouseMove(CGPoint),
+    InvalidateCache,
+}
+
 static ENABLED: AtomicBool = AtomicBool::new(true);
 static TAP_PORT: AtomicUsize = AtomicUsize::new(0);
 static VERBOSE: AtomicBool = AtomicBool::new(false);
@@ -82,40 +87,41 @@ fn main() {
         app
     };
 
-    let (tx, rx) = channel::<CGPoint>();
+    let (tx, rx) = channel::<FocusEvent>();
 
     // 2. Spawn worker thread to handle hover window focusing
     thread::spawn(move || {
         let mut last_window: Option<accessibility::AXElement> = None;
-        while let Ok(point) = rx.recv() {
+        while let Ok(event) = rx.recv() {
             if !ENABLED.load(Ordering::SeqCst) {
                 last_window = None;
                 continue;
             }
 
-            // Negative coordinates represent a cache-invalidation signal (from clicks/typing)
-            if point.x < 0.0 || point.y < 0.0 {
-                log_debug!("[DEBUG] User input event detected. Invalidating focus cache.");
-                last_window = None;
-                continue;
-            }
-
-            log_debug!("[DEBUG] Mouse position: x={}, y={}", point.x, point.y);
-
-            if let Some(window) = accessibility::find_window_at(point.x as f32, point.y as f32) {
-                let is_same = match &last_window {
-                    Some(lw) => lw == &window,
-                    None => false,
-                };
-                log_debug!("[DEBUG] Window found. is_same = {}", is_same);
-                
-                if !is_same {
-                    log_debug!("[DEBUG] Focusing window...");
-                    accessibility::focus_window(&window);
-                    last_window = Some(window);
+            match event {
+                FocusEvent::InvalidateCache => {
+                    log_debug!("[DEBUG] User input event detected. Invalidating focus cache.");
+                    last_window = None;
                 }
-            } else {
-                log_debug!("[DEBUG] No window found at coordinate.");
+                FocusEvent::MouseMove(point) => {
+                    log_debug!("[DEBUG] Mouse position: x={}, y={}", point.x, point.y);
+
+                    if let Some(window) = accessibility::find_window_at(point.x as f32, point.y as f32) {
+                        let is_same = match &last_window {
+                            Some(lw) => lw == &window,
+                            None => false,
+                        };
+                        log_debug!("[DEBUG] Window found. is_same = {}", is_same);
+                        
+                        if !is_same {
+                            log_debug!("[DEBUG] Focusing window...");
+                            accessibility::focus_window(&window);
+                            last_window = Some(window);
+                        }
+                    } else {
+                        log_debug!("[DEBUG] No window found at coordinate.");
+                    }
+                }
             }
         }
     });
@@ -188,10 +194,10 @@ fn main() {
                 || et == CGEventType::KeyDown as u32 
             {
                 // Invalidate focus cache upon manual user interaction (click/keystroke)
-                let _ = tx_clone.send(CGPoint::new(-1.0, -1.0));
+                let _ = tx_clone.send(FocusEvent::InvalidateCache);
             } else if et == CGEventType::MouseMoved as u32 {
                 let location = event.location();
-                let _ = tx_clone.send(location);
+                let _ = tx_clone.send(FocusEvent::MouseMove(location));
             }
             core_graphics::event::CallbackResult::Keep
         }
