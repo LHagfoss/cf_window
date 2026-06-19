@@ -17,33 +17,16 @@ fn main() {
     let (tx, rx) = channel::<CGPoint>();
 
     thread::spawn(move || {
-        println!("[+] Focus pipeline initialized.");
-
-        let mut last_window: Option<accessibility::AXUIElementRef> = None;
+        let mut last_window: Option<accessibility::AXElement> = None;
         while let Ok(point) = rx.recv() {
-            println!("[DEBUG] Worker thread received point: x={}, y={}", point.x, point.y);
-            unsafe {
-                if let Some(window) = accessibility::find_window_at(point.x as f32, point.y as f32) {
-                    println!("[DEBUG] Found window at point!");
-                    let is_same = match last_window {
-                        Some(lw) => core_foundation::base::CFEqual(lw as *const _, window as *const _) != 0,
-                        None => false,
-                    };
-                    println!("[DEBUG] is_same = {}", is_same);
-                    if !is_same {
-                        println!("[DEBUG] Focusing new window...");
-                        accessibility::focus_window(window);
-                        if let Some(lw) = last_window {
-                            core_foundation::base::CFRelease(lw as *const _);
-                        }
-                        // Keep the window reference
-                        last_window = Some(window);
-                    } else {
-                        // Same window, release the duplicate reference we got from find_window_at
-                        core_foundation::base::CFRelease(window as *const _);
-                    }
-                } else {
-                    println!("[DEBUG] No window found at point.");
+            if let Some(window) = accessibility::find_window_at(point.x as f32, point.y as f32) {
+                let is_same = match &last_window {
+                    Some(lw) => lw == &window,
+                    None => false,
+                };
+                if !is_same {
+                    accessibility::focus_window(&window);
+                    last_window = Some(window);
                 }
             }
         }
@@ -57,7 +40,6 @@ fn main() {
         vec![CGEventType::MouseMoved],
         move |_proxy, _type, event| {
             let location = event.location();
-            println!("[DEBUG] MouseMoved callback: x={}, y={}", location.x, location.y);
             let _ = tx_clone.send(location);
             core_graphics::event::CallbackResult::Keep
         }
