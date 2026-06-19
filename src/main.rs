@@ -79,19 +79,27 @@ fn main() {
 
             // Negative coordinates represent a cache-invalidation signal (from clicks/typing)
             if point.x < 0.0 || point.y < 0.0 {
+                println!("[DEBUG] User input event detected. Invalidating focus cache.");
                 last_window = None;
                 continue;
             }
+
+            println!("[DEBUG] Mouse position: x={}, y={}", point.x, point.y);
 
             if let Some(window) = accessibility::find_window_at(point.x as f32, point.y as f32) {
                 let is_same = match &last_window {
                     Some(lw) => lw == &window,
                     None => false,
                 };
+                println!("[DEBUG] Window found. is_same = {}", is_same);
+                
                 if !is_same {
+                    println!("[DEBUG] Focusing window...");
                     accessibility::focus_window(&window);
                     last_window = Some(window);
                 }
+            } else {
+                println!("[DEBUG] No window found at coordinate.");
             }
         }
     });

@@ -93,7 +93,9 @@ pub fn find_window_at(x: f32, y: f32) -> Option<AXElement> {
         let sys_wide = AXElement::new(AXUIElementCreateSystemWide());
         let mut raw_element = std::ptr::null_mut();
 
-        if AXUIElementCopyElementAtPosition(sys_wide.raw(), x, y, &mut raw_element) != K_AX_ERROR_SUCCESS {
+        let err = AXUIElementCopyElementAtPosition(sys_wide.raw(), x, y, &mut raw_element);
+        if err != K_AX_ERROR_SUCCESS {
+            println!("[DEBUG] AXUIElementCopyElementAtPosition failed with code: {}", err);
             return None;
         }
         let element = AXElement::new(raw_element);
@@ -103,27 +105,45 @@ pub fn find_window_at(x: f32, y: f32) -> Option<AXElement> {
         let target_role = CFString::from_static_string(K_AX_WINDOW_ROLE);
 
         let mut current = element.clone();
+        let mut depth = 0;
 
         while !current.raw().is_null() {
             let mut role_ref = std::ptr::null_mut();
+            let mut role_name = String::from("unknown");
 
             if AXUIElementCopyAttributeValue(current.raw(), role_attr.as_concrete_TypeRef(), &mut role_ref) == K_AX_ERROR_SUCCESS {
                 let role_str = CFString::wrap_under_create_rule(role_ref as CFStringRef);
+                role_name = role_str.to_string();
+            }
 
-                if role_str.to_string() == target_role.to_string() {
-                    return Some(current);
-                }
+            // Query title for debug purposes
+            let title_attr = CFString::from_static_string("AXTitle");
+            let mut title_ref = std::ptr::null_mut();
+            let mut title_name = String::from("");
+            if AXUIElementCopyAttributeValue(current.raw(), title_attr.as_concrete_TypeRef(), &mut title_ref) == K_AX_ERROR_SUCCESS {
+                let title_str = CFString::wrap_under_create_rule(title_ref as CFStringRef);
+                title_name = title_str.to_string();
+            }
+
+            println!("[DEBUG] Traversal depth {}: role = {}, title = {:?}", depth, role_name, title_name);
+
+            if role_name == target_role.to_string() {
+                println!("[DEBUG] Found AXWindow element!");
+                return Some(current);
             }
 
             let mut parent_ref = std::ptr::null_mut();
-
-            if AXUIElementCopyAttributeValue(current.raw(), parent_attr.as_concrete_TypeRef(), &mut parent_ref) == K_AX_ERROR_SUCCESS {
+            let parent_err = AXUIElementCopyAttributeValue(current.raw(), parent_attr.as_concrete_TypeRef(), &mut parent_ref);
+            if parent_err == K_AX_ERROR_SUCCESS {
                 current = AXElement::new(parent_ref);
+                depth += 1;
             } else {
+                println!("[DEBUG] Parent lookup failed at depth {} with code: {}", depth, parent_err);
                 break;
             }
         }
 
+        println!("[DEBUG] Traversal finished, no AXWindow found.");
         None
     }
 }
@@ -136,28 +156,35 @@ pub fn focus_window(window: &AXElement) {
         let raise_act = CFString::from_static_string(K_AX_RAISE_ACTION);
 
         let mut is_main_ref = std::ptr::null_mut();
+        let mut is_main_bool = false;
         
         if AXUIElementCopyAttributeValue(window.raw(), main_attr.as_concrete_TypeRef(), &mut is_main_ref) == K_AX_ERROR_SUCCESS {
             let is_main = core_foundation::boolean::CFBoolean::wrap_under_create_rule(is_main_ref as _);
-
-            if is_main == core_foundation::boolean::CFBoolean::true_value() {
-                // If it is already main, we still want to ensure application is frontmost,
-                // so we don't return early.
-            }
+            is_main_bool = is_main == core_foundation::boolean::CFBoolean::true_value();
         }
+        println!("[DEBUG] Focus window target: is_main = {}", is_main_bool);
 
         let true_val = core_foundation::boolean::CFBoolean::true_value();
         let true_val_ref = true_val.as_concrete_TypeRef();
 
         let mut pid: libc::pid_t = 0;
-        if AXUIElementGetPid(window.raw(), &mut pid) == K_AX_ERROR_SUCCESS {
+        let pid_err = AXUIElementGetPid(window.raw(), &mut pid);
+        println!("[DEBUG] AXUIElementGetPid returned: {}, pid = {}", pid_err, pid);
+        
+        if pid_err == K_AX_ERROR_SUCCESS {
             let app: cocoa::base::id = msg_send![class!(NSRunningApplication), runningApplicationWithProcessIdentifier: pid];
             if app != cocoa::base::nil {
-                let _: cocoa::base::BOOL = msg_send![app, activateWithOptions: cocoa::appkit::NSApplicationActivateIgnoringOtherApps];
+                let success: cocoa::base::BOOL = msg_send![app, activateWithOptions: cocoa::appkit::NSApplicationActivateIgnoringOtherApps];
+                println!("[DEBUG] NSRunningApplication activateWithOptions returned: {}", success);
+            } else {
+                println!("[DEBUG] NSRunningApplication for pid {} is nil", pid);
             }
         }
 
-        AXUIElementSetAttributeValue(window.raw(), main_attr.as_concrete_TypeRef(), true_val_ref as *mut _);
-        AXUIElementPerformAction(window.raw(), raise_act.as_concrete_TypeRef());
+        let main_err = AXUIElementSetAttributeValue(window.raw(), main_attr.as_concrete_TypeRef(), true_val_ref as *mut _);
+        println!("[DEBUG] AXUIElementSetAttributeValue(AXMain) returned: {}", main_err);
+        
+        let raise_err = AXUIElementPerformAction(window.raw(), raise_act.as_concrete_TypeRef());
+        println!("[DEBUG] AXUIElementPerformAction(AXRaise) returned: {}", raise_err);
     }
 }
